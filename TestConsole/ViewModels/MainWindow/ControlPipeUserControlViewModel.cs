@@ -14,6 +14,7 @@ namespace TestConsole
 	{
 		public static ControlPipeUserControlViewModel Singleton { get; private set; }
 		public ControlPipeUserControl View { get; set; }
+		private CancellationTokenSource _updateCancellationTokenSource;
 
 		private DelegateCommand _RunPEPayloadPathBrowseCommand;
 		private DelegateCommand<ControlCode> _ExecuteCommand;
@@ -68,14 +69,30 @@ namespace TestConsole
 
 		public void BeginUpdate()
 		{
+			_updateCancellationTokenSource = new CancellationTokenSource();
+			var token = _updateCancellationTokenSource.Token;
+			
 			ThreadFactory.StartThread(() =>
 			{
-				while (true)
+				while (!token.IsCancellationRequested)
 				{
-					View.Dispatch(() => RaisePropertyChanged(nameof(IsR77ServiceRunning)));
-					Thread.Sleep(1000);
+					try
+					{
+						View.Dispatch(() => RaisePropertyChanged(nameof(IsR77ServiceRunning)));
+						Thread.Sleep(1000);
+					}
+					catch
+					{
+						// If View is disposed, exit gracefully
+						break;
+					}
 				}
 			});
+		}
+
+		public void StopUpdate()
+		{
+			_updateCancellationTokenSource?.Cancel();
 		}
 
 		private void RunPEPayloadPathBrowseCommand_Execute()
@@ -236,17 +253,32 @@ namespace TestConsole
 						}
 						else
 						{
-							using (MemoryStream memoryStream = new MemoryStream())
+							// Validate file size to prevent OutOfMemoryException
+							FileInfo payloadFileInfo = new FileInfo(RunPEPayloadPath);
+							const long MaxPayloadSize = 100 * 1024 * 1024; // 100 MB limit
+							
+							if (payloadFileInfo.Length > MaxPayloadSize)
 							{
-								using (BinaryWriter writer = new BinaryWriter(memoryStream))
+								Log.Write(new LogMessage
+								(
+									LogMessageType.Error,
+									new LogTextItem("Payload file too large. Maximum size is 100 MB.")
+								));
+							}
+							else
+							{
+								using (MemoryStream memoryStream = new MemoryStream())
 								{
-									writer.Write(RunPETargetPath.ToUnicodeBytes());
-									writer.Write((short)0);
-									writer.Write((int)new FileInfo(RunPEPayloadPath).Length);
-									writer.Write(File.ReadAllBytes(RunPEPayloadPath));
-								}
+									using (BinaryWriter writer = new BinaryWriter(memoryStream))
+									{
+										writer.Write(RunPETargetPath.ToUnicodeBytes());
+										writer.Write((short)0);
+										writer.Write((int)payloadFileInfo.Length);
+										writer.Write(File.ReadAllBytes(RunPEPayloadPath));
+									}
 
-								Log.Write(ControlPipe.Write(parameter, memoryStream.ToArray(), Path.GetFileName(RunPEPayloadPath) + " -> " + Path.GetFileName(RunPETargetPath)).ToArray());
+									Log.Write(ControlPipe.Write(parameter, memoryStream.ToArray(), Path.GetFileName(RunPEPayloadPath) + " -> " + Path.GetFileName(RunPETargetPath)).ToArray());
+								}
 							}
 						}
 						break;

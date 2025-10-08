@@ -39,7 +39,10 @@ public static class Program
 		string commandLine = "/Processid:" + Guid.NewGuid().ToString("B"); // Random commandline to mimic an actual dllhost.exe commandline (has no effect).
 
 		// Parent process spoofing can only be used on certain processes, particularly the PROCESS_CREATE_PROCESS privilege is required.
-		int parentProcessId = Process.GetProcessesByName("winlogon")[0].Id;
+		Process[] winlogonProcesses = Process.GetProcessesByName("winlogon");
+		if (winlogonProcesses.Length == 0)
+			throw new InvalidOperationException("winlogon.exe process not found");
+		int parentProcessId = winlogonProcesses[0].Id;
 
 		// Create the 32-bit and 64-bit instance of the r77 service.
 		if (Helper.Is64BitOperatingSystem())
