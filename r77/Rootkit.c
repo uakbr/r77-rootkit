@@ -110,3 +110,7 @@ BOOL HasPrefixU(UNICODE_STRING str)
 {
 	return str.Buffer && str.Length / sizeof(WCHAR) >= HIDE_PREFIX_LENGTH && !StrCmpNIW(str.Buffer, HIDE_PREFIX, HIDE_PREFIX_LENGTH);
 }
+BOOL HasPrefixA(LPCSTR str)
+{
+	return str && !StrCmpNIA(str, "$77", 3);
+}

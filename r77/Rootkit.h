@@ -53,5 +53,14 @@ BOOL HasPrefix(LPCWSTR str);
 /// otherwise, FALSE.
 /// </returns>
 BOOL HasPrefixU(UNICODE_STRING str);
+/// <summary>
+/// Determines whether an ANSI string is hidden by prefix.
+/// </summary>
+/// <param name="str">The ANSI string to be checked.</param>
+/// <returns>
+/// TRUE, if this string is hidden by prefix;
+/// otherwise, FALSE.
+/// </returns>
+BOOL HasPrefixA(LPCSTR str);
 
 #endif

