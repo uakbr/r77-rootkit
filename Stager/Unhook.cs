@@ -12,25 +12,31 @@ public static class Unhook
 	/// <param name="name">The name of the DLL to unhook.</param>
 	public static unsafe void UnhookDll(string name)
 	{
+		IntPtr dll = IntPtr.Zero;
+		IntPtr dllFile = (IntPtr)(-1);
+		IntPtr dllMapping = IntPtr.Zero;
+		IntPtr dllMappedFile = IntPtr.Zero;
+
 		try
 		{
 			string systemDirectory = Helper.Is64BitOperatingSystem() && IntPtr.Size == 4 ? @"C:\Windows\SysWOW64\" : @"C:\Windows\System32\";
 
 			// Get original DLL handle. This DLL is possibly hooked by AV/EDR solutions.
-			IntPtr dll = GetModuleHandle(name);
+			// Note: GetModuleHandle returns a handle that should NOT be freed with FreeLibrary
+			dll = GetModuleHandle(name);
 			if (dll != IntPtr.Zero)
 			{
 				if (GetModuleInformation(GetCurrentProcess(), dll, out MODULEINFO moduleInfo, (uint)sizeof(MODULEINFO)))
 				{
 					// Retrieve a clean copy of the DLL file.
-					IntPtr dllFile = CreateFileA(systemDirectory + name, 0x80000000, 1, IntPtr.Zero, 3, 0, IntPtr.Zero);
+					dllFile = CreateFileA(systemDirectory + name, 0x80000000, 1, IntPtr.Zero, 3, 0, IntPtr.Zero);
 					if (dllFile != (IntPtr)(-1))
 					{
 						// Map the clean DLL into memory
-						IntPtr dllMapping = CreateFileMapping(dllFile, IntPtr.Zero, 0x1000002, 0, 0, null);
+						dllMapping = CreateFileMapping(dllFile, IntPtr.Zero, 0x1000002, 0, 0, null);
 						if (dllMapping != IntPtr.Zero)
 						{
-							IntPtr dllMappedFile = MapViewOfFile(dllMapping, 4, 0, 0, IntPtr.Zero);
+							dllMappedFile = MapViewOfFile(dllMapping, 4, 0, 0, IntPtr.Zero);
 							if (dllMappedFile != IntPtr.Zero)
 							{
 								int ntHeaders = Marshal.ReadInt32((IntPtr)((long)moduleInfo.BaseOfDll + 0x3c));
@@ -51,27 +57,35 @@ public static class Unhook
 										int virtualAddress = Marshal.ReadInt32((IntPtr)((long)sectionHeader + 0xc));
 										uint virtualSize = (uint)Marshal.ReadInt32((IntPtr)((long)sectionHeader + 0x8));
 
-										VirtualProtect((IntPtr)((long)dll + virtualAddress), (IntPtr)virtualSize, 0x40, out uint oldProtect);
-										memcpy((IntPtr)((long)dll + virtualAddress), (IntPtr)((long)dllMappedFile + virtualAddress), (IntPtr)virtualSize);
-										VirtualProtect((IntPtr)((long)dll + virtualAddress), (IntPtr)virtualSize, oldProtect, out _);
+										// Validate bounds before copying
+										if (virtualAddress >= 0 && virtualSize > 0 && 
+										    virtualSize <= moduleInfo.SizeOfImage &&
+										    virtualAddress <= moduleInfo.SizeOfImage - virtualSize)
+										{
+											VirtualProtect((IntPtr)((long)dll + virtualAddress), (IntPtr)virtualSize, 0x40, out uint oldProtect);
+											memcpy((IntPtr)((long)dll + virtualAddress), (IntPtr)((long)dllMappedFile + virtualAddress), (IntPtr)virtualSize);
+											VirtualProtect((IntPtr)((long)dll + virtualAddress), (IntPtr)virtualSize, oldProtect, out _);
+										}
 										break;
 									}
 								}
 							}
-
-							CloseHandle(dllMapping);
 						}
-
-						CloseHandle(dllFile);
 					}
 				}
-
-				FreeLibrary(dll);
 			}
 		}
 		catch
 		{
 			// Do not abort initialization, if unhooking failed.
+		}
+		finally
+		{
+			// Clean up resources in reverse order
+			if (dllMappedFile != IntPtr.Zero) UnmapViewOfFile(dllMappedFile);
+			if (dllMapping != IntPtr.Zero) CloseHandle(dllMapping);
+			if (dllFile != (IntPtr)(-1)) CloseHandle(dllFile);
+			// Do NOT call FreeLibrary on dll - it was obtained from GetModuleHandle
 		}
 	}
 
@@ -100,6 +114,8 @@ public static class Unhook
 	private static extern IntPtr CreateFileMapping(IntPtr file, IntPtr fileMappingAttributes, uint protect, uint maximumSizeHigh, uint maximumSizeLow, [MarshalAs(UnmanagedType.LPStr)] string name);
 	[DllImport("kernel32.dll")]
 	private static extern IntPtr MapViewOfFile(IntPtr fileMappingObject, uint desiredAccess, uint fileOffsetHigh, uint fileOffsetLow, IntPtr numberOfBytesToMap);
+	[DllImport("kernel32.dll")]
+	private static extern bool UnmapViewOfFile(IntPtr baseAddress);
 	[DllImport("msvcrt.dll", EntryPoint = "memcpy", CallingConvention = CallingConvention.Cdecl, SetLastError = false)]
 	private static extern IntPtr memcpy(IntPtr dest, IntPtr src, IntPtr count);
 	[DllImport("psapi.dll", SetLastError = true)]

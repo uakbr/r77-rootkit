@@ -23,18 +23,12 @@ public static class Helper
 		}
 		else
 		{
-			using (Process process = Process.GetCurrentProcess())
+			// GetCurrentProcess() returns a pseudo-handle that doesn't need disposal
+			if (!IsWow64Process(Process.GetCurrentProcess().Handle, out bool wow64))
 			{
-				bool wow64;
-				if (IsWow64Process(process.Handle, out wow64))
-				{
-					return wow64;
-				}
-				else
-				{
-					throw new Exception();
-				}
+				throw new InvalidOperationException("IsWow64Process failed");
 			}
+			return wow64;
 		}
 	}
 	/// <summary>
