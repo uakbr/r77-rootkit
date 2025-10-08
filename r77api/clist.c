@@ -106,7 +106,8 @@ VOID LoadStringListFromRegistryKey(PSTRING_LIST list, HKEY key, DWORD maxStringL
 		{
 			DWORD valueNameLength = 100;
 			DWORD type;
-			DWORD valueSize = maxStringLength;
+			// RegEnumValueW expects byte count, not WCHAR count
+			DWORD valueSize = (maxStringLength + 1) * sizeof(WCHAR);
 
 			if (RegEnumValueW(key, i, valueName, &valueNameLength, NULL, &type, (LPBYTE)value, &valueSize) == ERROR_SUCCESS && type == REG_SZ && !StringListContains(list, value))
 			{
