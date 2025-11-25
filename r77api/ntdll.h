@@ -4,6 +4,7 @@
 
 #define STATUS_NO_MORE_FILES			((NTSTATUS)0x80000006L)
 #define PDH_MORE_DATA					((PDH_STATUS)0x800007d2L)
+#define NERR_Success					0
 
 #define SL_RESTART_SCAN					0x01
 #define SL_RETURN_SINGLE_ENTRY			0x02
@@ -16,6 +17,7 @@
 
 typedef LONG PDH_STATUS;
 typedef HANDLE PDH_HCOUNTER;
+typedef DWORD NET_API_STATUS;
 
 typedef enum _NT_SYSTEM_INFORMATION_CLASS
 {
@@ -778,6 +780,110 @@ typedef struct _NT_PDH_FMT_COUNTERVALUE_ITEM_W
 	NT_PDH_FMT_COUNTERVALUE FmtValue;
 } NT_PDH_FMT_COUNTERVALUE_ITEM_W, *PNT_PDH_FMT_COUNTERVALUE_ITEM_W;
 
+// User enumeration structures for netapi32.dll
+typedef struct _NT_USER_INFO_0
+{
+	LPWSTR usri0_name;
+} NT_USER_INFO_0, *PNT_USER_INFO_0;
+
+typedef struct _NT_USER_INFO_1
+{
+	LPWSTR usri1_name;
+	LPWSTR usri1_password;
+	DWORD usri1_password_age;
+	DWORD usri1_priv;
+	LPWSTR usri1_home_dir;
+	LPWSTR usri1_comment;
+	DWORD usri1_flags;
+	LPWSTR usri1_script_path;
+} NT_USER_INFO_1, *PNT_USER_INFO_1;
+
+typedef struct _NT_USER_INFO_2
+{
+	LPWSTR usri2_name;
+	LPWSTR usri2_password;
+	DWORD usri2_password_age;
+	DWORD usri2_priv;
+	LPWSTR usri2_home_dir;
+	LPWSTR usri2_comment;
+	DWORD usri2_flags;
+	LPWSTR usri2_script_path;
+	DWORD usri2_auth_flags;
+	LPWSTR usri2_full_name;
+	LPWSTR usri2_usr_comment;
+	LPWSTR usri2_parms;
+	LPWSTR usri2_workstations;
+	DWORD usri2_last_logon;
+	DWORD usri2_last_logoff;
+	DWORD usri2_acct_expires;
+	DWORD usri2_max_storage;
+	DWORD usri2_units_per_week;
+	LPBYTE usri2_logon_hours;
+	DWORD usri2_bad_pw_count;
+	DWORD usri2_num_logons;
+	LPWSTR usri2_logon_server;
+	DWORD usri2_country_code;
+	DWORD usri2_code_page;
+} NT_USER_INFO_2, *PNT_USER_INFO_2;
+
+typedef struct _NT_USER_INFO_3
+{
+	LPWSTR usri3_name;
+	LPWSTR usri3_password;
+	DWORD usri3_password_age;
+	DWORD usri3_priv;
+	LPWSTR usri3_home_dir;
+	LPWSTR usri3_comment;
+	DWORD usri3_flags;
+	LPWSTR usri3_script_path;
+	DWORD usri3_auth_flags;
+	LPWSTR usri3_full_name;
+	LPWSTR usri3_usr_comment;
+	LPWSTR usri3_parms;
+	LPWSTR usri3_workstations;
+	DWORD usri3_last_logon;
+	DWORD usri3_last_logoff;
+	DWORD usri3_acct_expires;
+	DWORD usri3_max_storage;
+	DWORD usri3_units_per_week;
+	LPBYTE usri3_logon_hours;
+	DWORD usri3_bad_pw_count;
+	DWORD usri3_num_logons;
+	LPWSTR usri3_logon_server;
+	DWORD usri3_country_code;
+	DWORD usri3_code_page;
+	DWORD usri3_user_id;
+	DWORD usri3_primary_group_id;
+	LPWSTR usri3_profile;
+	LPWSTR usri3_home_dir_drive;
+	DWORD usri3_password_expired;
+} NT_USER_INFO_3, *PNT_USER_INFO_3;
+
+// Local group members enumeration structures
+typedef struct _NT_LOCALGROUP_MEMBERS_INFO_0
+{
+	PSID lgrmi0_sid;
+} NT_LOCALGROUP_MEMBERS_INFO_0, *PNT_LOCALGROUP_MEMBERS_INFO_0;
+
+typedef struct _NT_LOCALGROUP_MEMBERS_INFO_1
+{
+	PSID lgrmi1_sid;
+	DWORD lgrmi1_sidusage;
+	LPWSTR lgrmi1_name;
+} NT_LOCALGROUP_MEMBERS_INFO_1, *PNT_LOCALGROUP_MEMBERS_INFO_1;
+
+typedef struct _NT_LOCALGROUP_MEMBERS_INFO_2
+{
+	PSID lgrmi2_sid;
+	DWORD lgrmi2_sidusage;
+	LPWSTR lgrmi2_domainandname;
+} NT_LOCALGROUP_MEMBERS_INFO_2, *PNT_LOCALGROUP_MEMBERS_INFO_2;
+
+typedef struct _NT_LOCALGROUP_MEMBERS_INFO_3
+{
+	LPWSTR lgrmi3_domainandname;
+} NT_LOCALGROUP_MEMBERS_INFO_3, *PNT_LOCALGROUP_MEMBERS_INFO_3;
+
 typedef NTSTATUS(NTAPI *NT_NTQUERYSYSTEMINFORMATION)(SYSTEM_INFORMATION_CLASS systemInformationClass, LPVOID systemInformation, ULONG systemInformationLength, PULONG returnLength);
 typedef NTSTATUS(NTAPI *NT_NTRESUMETHREAD)(HANDLE thread, PULONG suspendCount);
 typedef NTSTATUS(NTAPI *NT_NTQUERYDIRECTORYFILE)(HANDLE fileHandle, HANDLE event, PIO_APC_ROUTINE apcRoutine, LPVOID apcContext, PIO_STATUS_BLOCK ioStatusBlock, LPVOID fileInformation, ULONG length, FILE_INFORMATION_CLASS fileInformationClass, BOOLEAN returnSingleEntry, PUNICODE_STRING fileName, BOOLEAN restartScan);
@@ -791,6 +897,8 @@ typedef BOOL(WINAPI *NT_ENUMSERVICESSTATUSW)(SC_HANDLE serviceManager, DWORD ser
 typedef BOOL(WINAPI *NT_ENUMSERVICEGROUPW)(SC_HANDLE serviceManager, DWORD serviceType, DWORD serviceState, LPBYTE services, DWORD servicesLength, LPDWORD bytesNeeded, LPDWORD servicesReturned, LPDWORD resumeHandle, LPVOID reserved);
 typedef BOOL(WINAPI *NT_ENUMSERVICESSTATUSEXA)(SC_HANDLE serviceManager, SC_ENUM_TYPE infoLevel, DWORD serviceType, DWORD serviceState, LPBYTE services, DWORD servicesLength, LPDWORD bytesNeeded, LPDWORD servicesReturned, LPDWORD resumeHandle, LPCSTR groupName);
 typedef BOOL(WINAPI *NT_ENUMSERVICESSTATUSEXW)(SC_HANDLE serviceManager, SC_ENUM_TYPE infoLevel, DWORD serviceType, DWORD serviceState, LPBYTE services, DWORD servicesLength, LPDWORD bytesNeeded, LPDWORD servicesReturned, LPDWORD resumeHandle, LPCWSTR groupName);
+typedef NET_API_STATUS(WINAPI *NT_NETUSERENUM)(LPCWSTR servername, DWORD level, DWORD filter, LPBYTE *bufptr, DWORD prefmaxlen, LPDWORD entriesread, LPDWORD totalentries, LPDWORD resume_handle);
+typedef NET_API_STATUS(WINAPI *NT_NETLOCALGROUPGETMEMBERS)(LPCWSTR servername, LPCWSTR localgroupname, DWORD level, LPBYTE *bufptr, DWORD prefmaxlen, LPDWORD entriesread, LPDWORD totalentries, PDWORD_PTR resumehandle);
 typedef NTSTATUS(NTAPI *NT_NTDEVICEIOCONTROLFILE)(HANDLE fileHandle, HANDLE event, PIO_APC_ROUTINE apcRoutine, LPVOID apcContext, PIO_STATUS_BLOCK ioStatusBlock, ULONG ioControlCode, LPVOID inputBuffer, ULONG inputBufferLength, LPVOID outputBuffer, ULONG outputBufferLength);
 typedef PDH_STATUS(WINAPI *NT_PDHGETCOUNTERINFOW)(PDH_HCOUNTER counter, BOOLEAN retrieveExplainText, LPDWORD bufferSize, PNT_PDH_COUNTER_INFO_W buffer);
 typedef PDH_STATUS(WINAPI *NT_PDHGETRAWCOUNTERARRAYW)(PDH_HCOUNTER counter, LPDWORD bufferSize, LPDWORD itemCount, PNT_PDH_RAW_COUNTER_ITEM_W itemBuffer);
