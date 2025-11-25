@@ -68,6 +68,15 @@ BOOL IsRegistryPathHidden(LPCWSTR path);
 /// </returns>
 BOOL IsServiceNameHidden(LPCWSTR name);
 /// <summary>
+/// Determines whether a local user should be hidden based on a specific name.
+/// </summary>
+/// <param name="name">The user name to check.</param>
+/// <returns>
+/// TRUE, if the user with the specified name should be hidden;
+/// otherwise, FALSE.
+/// </returns>
+BOOL IsUserNameHidden(LPCWSTR name);
+/// <summary>
 /// Determines whether a local TCP port should be hidden.
 /// </summary>
 /// <param name="port">The TCP port to check.</param>

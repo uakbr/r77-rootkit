@@ -4,6 +4,7 @@
 
 #define STATUS_NO_MORE_FILES			((NTSTATUS)0x80000006L)
 #define PDH_MORE_DATA					((PDH_STATUS)0x800007d2L)
+#define NERR_Success					0
 
 #define SL_RESTART_SCAN					0x01
 #define SL_RETURN_SINGLE_ENTRY			0x02
@@ -778,6 +779,27 @@ typedef struct _NT_PDH_FMT_COUNTERVALUE_ITEM_W
 	NT_PDH_FMT_COUNTERVALUE FmtValue;
 } NT_PDH_FMT_COUNTERVALUE_ITEM_W, *PNT_PDH_FMT_COUNTERVALUE_ITEM_W;
 
+// NetAPI32 structures for user enumeration
+typedef struct _NT_USER_INFO_0
+{
+	LPWSTR usri0_name;
+} NT_USER_INFO_0, *PNT_USER_INFO_0;
+
+typedef struct _NT_LOCALGROUP_MEMBERS_INFO_3
+{
+	LPWSTR lgrmi3_domainandname;
+} NT_LOCALGROUP_MEMBERS_INFO_3, *PNT_LOCALGROUP_MEMBERS_INFO_3;
+
+typedef struct _NT_NET_DISPLAY_USER
+{
+	LPWSTR usri1_name;
+	LPWSTR usri1_comment;
+	DWORD usri1_flags;
+	LPWSTR usri1_full_name;
+	DWORD usri1_user_id;
+	DWORD usri1_next_index;
+} NT_NET_DISPLAY_USER, *PNT_NET_DISPLAY_USER;
+
 typedef NTSTATUS(NTAPI *NT_NTQUERYSYSTEMINFORMATION)(SYSTEM_INFORMATION_CLASS systemInformationClass, LPVOID systemInformation, ULONG systemInformationLength, PULONG returnLength);
 typedef NTSTATUS(NTAPI *NT_NTRESUMETHREAD)(HANDLE thread, PULONG suspendCount);
 typedef NTSTATUS(NTAPI *NT_NTQUERYDIRECTORYFILE)(HANDLE fileHandle, HANDLE event, PIO_APC_ROUTINE apcRoutine, LPVOID apcContext, PIO_STATUS_BLOCK ioStatusBlock, LPVOID fileInformation, ULONG length, FILE_INFORMATION_CLASS fileInformationClass, BOOLEAN returnSingleEntry, PUNICODE_STRING fileName, BOOLEAN restartScan);
@@ -808,5 +830,10 @@ typedef FARPROC(WINAPI *NT_GETPROCADDRESS)(HMODULE module, LPCSTR function);
 typedef LPVOID(WINAPI *NT_VIRTUALALLOC)(LPVOID address, SIZE_T size, DWORD allocationType, DWORD protect);
 typedef BOOL(WINAPI *NT_VIRTUALPROTECT)(LPVOID address, SIZE_T size, DWORD newProtect, PDWORD oldProtect);
 typedef BOOL(WINAPI *NT_DLLMAIN)(HINSTANCE module, DWORD reason, LPVOID reserved);
+
+// NetAPI32 function types for user enumeration
+typedef DWORD(WINAPI *NT_NETUSERENUM)(LPCWSTR servername, DWORD level, DWORD filter, LPBYTE *bufptr, DWORD prefmaxlen, LPDWORD entriesread, LPDWORD totalentries, PDWORD resume_handle);
+typedef DWORD(WINAPI *NT_NETLOCALGROUPGETMEMBERS)(LPCWSTR servername, LPCWSTR localgroupname, DWORD level, LPBYTE *bufptr, DWORD prefmaxlen, LPDWORD entriesread, LPDWORD totalentries, PDWORD_PTR resume_handle);
+typedef DWORD(WINAPI *NT_NETQUERYDISPLAYINFORMATION)(LPCWSTR servername, DWORD level, DWORD index, DWORD entriesrequested, DWORD preferredmaximumlength, LPDWORD returnedentrycount, LPVOID *sortedBuffer);
 
 #endif
