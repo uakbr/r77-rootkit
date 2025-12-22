@@ -79,7 +79,7 @@ The Test Console is a useful tool to inject r77 into individual processes and to
 ## Build prerequisites
 
 - Visual Studio 2022 or newer with the MSVC v143 toolset installed.
-- .NET 9 SDK with the Windows desktop targeting pack (BytecodeApi packages used by BuildTask and TestConsole target .NET 9).
+- .NET 9 SDK with the Windows desktop targeting pack (required for BytecodeApi packages used by BuildTask and TestConsole, which both target .NET 9).
 - Restore NuGet packages before building; if Visual Studio does not restore automatically, run `dotnet restore BuildTask/BuildTask.csproj`.
 
 ## Technical Documentation
