@@ -76,6 +76,12 @@ The Test Console is a useful tool to inject r77 into individual processes and to
 
 ![](https://bytecode77.com/images/pages/r77-rootkit/testconsole.webp)
 
+## Build prerequisites
+
+- Visual Studio 2022 or newer with the MSVC v143 toolset installed.
+- .NET 9 SDK with the Windows desktop targeting pack (required for BytecodeApi packages used by BuildTask and TestConsole, which both target .NET 9).
+- Restore NuGet packages before building; if Visual Studio does not restore automatically, run `dotnet restore BuildTask/BuildTask.csproj`.
+
 ## Technical Documentation
 
 Please read the [technical documentation](https://docs.bytecode77.com/r77-rootkit/Technical%20Documentation.pdf) to get a comprehensive and full overview of r77 and its internals, and how to deploy and integrate it.
