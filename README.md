@@ -80,6 +80,7 @@ The Test Console is a useful tool to inject r77 into individual processes and to
 
 - Visual Studio 2022 or newer with the MSVC v143 toolset installed.
 - .NET 9 SDK with the Windows desktop targeting pack (required for BytecodeApi packages used by BuildTask and TestConsole, which both target .NET 9).
+- Visual Studio 2026 ships with a .NET 10 SDK that cannot build these .NET 9 projects. The included `global.json` pins the solution to the .NET 9 SDK; install the .NET 9 SDK + Windows desktop targeting pack (Individual components > .NET 9) so Visual Studio uses it.
 - Restore NuGet packages before building; if Visual Studio does not restore automatically, run `dotnet restore BuildTask/BuildTask.csproj`.
 
 ## Technical Documentation
