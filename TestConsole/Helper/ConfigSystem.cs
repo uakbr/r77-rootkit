@@ -19,6 +19,7 @@ public static class ConfigSystem
 		["paths"] = RegistryValueKind.String,
 		["registry_paths"] = RegistryValueKind.String,
 		["service_names"] = RegistryValueKind.String,
+		["user_names"] = RegistryValueKind.String,
 		["tcp_local"] = RegistryValueKind.DWord,
 		["tcp_remote"] = RegistryValueKind.DWord,
 		["udp"] = RegistryValueKind.DWord,

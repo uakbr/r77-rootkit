@@ -33,6 +33,10 @@ typedef struct _R77_CONFIG
 	/// </summary>
 	PSTRING_LIST HiddenServiceNames;
 	/// <summary>
+	/// A list of local user names to hide in addition to users hidden by the prefix.
+	/// </summary>
+	PSTRING_LIST HiddenUserNames;
+	/// <summary>
 	/// A list of local TCP ports to hide.
 	/// </summary>
 	PINTEGER_LIST HiddenTcpLocalPorts;

